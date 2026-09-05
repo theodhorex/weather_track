@@ -144,7 +144,7 @@ export default function DashboardPage() {
             {["github", "docs", "changelog"].map((link) => (
               <a
                 key={link}
-                href="#"
+                href="https://github.com/theodhorex/weather_track"
                 className="text-ink hover:underline underline-offset-4"
               >
                 {link}
