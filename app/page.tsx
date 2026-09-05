@@ -152,7 +152,7 @@ export default function DashboardPage() {
             ))}
           </div>
           <div className="mt-lg flex flex-wrap items-center justify-between gap-md">
-            <span>©2026 weather-tracker contributors</span>
+            <span>©2026 weather-tracker - Theodhorex</span>
             <span>
               brand · privacy · terms · <span className="text-ink">english ▼</span>
             </span>
