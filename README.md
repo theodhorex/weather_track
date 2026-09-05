@@ -1,107 +1,122 @@
 # Weather Alert System
 
-Sistem monitoring cuaca otomatis yang mengirim **alert ke Telegram** ketika terdeteksi potensi hujan. Data diambil dari **OpenWeatherMap API**, disimpan ke **InfluxDB** sebagai time-series database, lalu dianalisis untuk memicu notifikasi.
+An automated weather monitoring system that delivers Telegram alerts when potential rain is detected. Data is sourced from the OpenWeatherMap API, persisted to InfluxDB as a time-series store, and analyzed to trigger notifications.
 
-Project ini berjalan **otomatis & gratis via GitHub Actions** — tidak perlu server 24/7.
-
----
-
-## Fitur Utama
-
-- 🌧️ **Deteksi hujan otomatis** — alert jika `rain_probability > 60%` **ATAU** `weather_main == "Rain"`.
-- 📲 **Notifikasi Telegram** — pesan alert terkirim via Bot API dengan emoji 🌧️/☀️.
-- 🗄️ **Time-series storage** — data historis tersimpan rapi di InfluxDB 2.x.
-- 🚫 **Anti-spam** — alert hanya dikirim saat status BERUBAH (`normal → rain` atau `rain → normal`), bukan tiap kali kondisi terpenuhi.
-- ☁️ **Serverless** — dijalankan via GitHub Actions cron, tidak perlu hosting sendiri.
+The system runs automatically and at no cost via GitHub Actions, requiring no always-on server.
 
 ---
 
-## Arsitektur
+## Features
+
+- **Automated rain detection** — triggers an alert when `rain_probability > 60%` or `weather_main == "Rain"`.
+- **Telegram notifications** — alert messages delivered via the Bot API.
+- **Time-series storage** — historical readings persisted in InfluxDB 2.x.
+- **Anti-spam** — alerts are dispatched only on status transitions (e.g. `normal` to `rain` and back), preventing duplicate messages.
+- **Web dashboard** — read-only Next.js 14 frontend that visualises the same InfluxDB data with auto-refresh.
+
+---
+
+## Architecture
 
 ```
-┌─────────────────────┐
-│  GitHub Actions     │  schedule (cron)
-│  ┌───────────────┐  │
-│  │ collector.yml │  │  tiap 20 menit
-│  └───────┬───────┘  │
-│          │ fetch    │
-│          ▼          │
-│   OpenWeatherMap    │
-│          │ write    │
-│          ▼          │
-│       InfluxDB      │  ← data historis persistent di sini
-│          │ query    │
-│  ┌───────┴───────┐  │
-│  │alert_checker  │  │  tiap 10 menit
-│  │     .yml      │  │
-│  └───────┬───────┘  │
-│          │ detect   │
-│          ▼          │
-│   Telegram Bot API  │
-└─────────────────────┘
+GitHub Actions
+        |
+        | schedule (cron)
+        v
++------------------+        +------------------+
+| Python collector | -----> |   OpenWeatherMap |
+| (every 20 min)   |        +------------------+
++--------+---------+
+         |
+         | write
+         v
++------------------+
+|     InfluxDB     | <-----+
+| bucket: weather  |       |
++--------+---------+       |
+         |                 | query (read)
+         |                 |
+         |        +--------+---------+
+         |        | Next.js dashboard |
+         |        | (serverless)      |
+         |        +--------+---------+
+         |                 |
+         |                 | render
+         |                 v
+         |        +------------------+
+         |        |     Browser      |
+         |        +------------------+
+         |
+         | query (read)
+         v
++------------------+
+| Python checker   | ----> Telegram Bot API
+| (every 10 min)   |
++------------------+
 ```
 
-> **Data historis tetap tersimpan di InfluxDB** yang sudah ada (`https://influxdb.asoytabang.online`). GitHub Actions hanya menjalankan **compute** (fetch + cek alert) secara berkala — tidak menyimpan data apa pun di runner.
+The Python backend writes to InfluxDB and is the single source of truth. The Next.js dashboard reads the same store and renders charts and status cards; the alert checker reads it for transition detection.
 
 ---
 
 ## Tech Stack
 
-- **Python 3.11** — backend collector + alert checker (cron via GitHub Actions)
-- **Next.js 14 + TypeScript + Tailwind** — web dashboard (lihat section [Dashboard](#dashboard-nextjs))
-- **InfluxDB 2.x** — time-series database (hosted, shared antara backend & dashboard)
-- **OpenWeatherMap API** — sumber data cuaca
-- **Telegram Bot API** — channel notifikasi
-- **GitHub Actions** — scheduler (cron) gratis untuk backend
+- **Python 3.11** — backend collector and alert checker, executed on a schedule via GitHub Actions
+- **Next.js 14 + TypeScript + Tailwind CSS** — web dashboard
+- **InfluxDB 2.x** — time-series database, hosted and shared between backend and dashboard
+- **OpenWeatherMap API** — weather data source
+- **Telegram Bot API** — notification channel
 
 ---
 
-## Struktur Project
+## Project Structure
 
 ```
 weather-alert-system/
 ├── .github/
 │   └── workflows/
-│       ├── collector.yml         # cron tiap 20 menit → fetch + write
-│       └── alert_checker.yml     # cron tiap 10 menit → cek + alert
-├── app/                          # Next.js App Router (dashboard)
+│       ├── collector.yml             # cron every 20 minutes, fetch and write
+│       └── alert_checker.yml         # cron every 10 minutes, check and alert
+├── app/                              # Next.js App Router (dashboard)
 │   ├── layout.tsx
-│   ├── page.tsx                  # dashboard utama
-│   ├── globals.css
+│   ├── page.tsx                      # main dashboard page
+│   ├── globals.css                   # Tailwind base styles
 │   ├── api/
-│   │   ├── weather/route.ts
-│   │   └── status/route.ts
+│   │   ├── weather/route.ts          # GET ?range=24h|7d|30d
+│   │   └── status/route.ts           # GET, latest reading and alert state
 │   └── components/
-│       ├── StatusCards.tsx        # list-row style dengan [+] [!] [?] markers
-│       ├── WeatherChart.tsx       # recharts line chart dalam chart-tile
-│       ├── RangeSelector.tsx      # tab-style 24h/7d/30d
-│       ├── StatTiles.tsx          # 4 ASCII sparkline tiles
-│       └── TuiMockup.tsx          # hero dark surface + ASCII wordmark
-├── lib/influx.ts                 # InfluxDB client wrapper (server-side)
-├── src/                          # Python backend (dipanggil via -m)
+│       ├── StatusCards.tsx           # list-row style with bracket markers
+│       ├── WeatherChart.tsx          # line chart in chart-tile pattern
+│       ├── RangeSelector.tsx         # tab-style 24h/7d/30d
+│       └── StatTiles.tsx             # ASCII sparkline summary tiles
+├── lib/
+│   └── influx.ts                     # server-side InfluxDB client wrapper
+├── src/                              # Python backend (run via -m)
 │   ├── __init__.py
 │   ├── alert_checker.py
 │   ├── influx_weather_collector.py
 │   ├── influx_weather_collector_loop.py
 │   ├── test_telegram.py
 │   └── weather_forecast.py
-├── .env.example                  # template env untuk Python (backend)
-├── .env.local.example            # template env untuk Next.js (dashboard)
+├── docs/
+│   └── sessions/                     # session summaries for handoff
+├── .env.example                      # template env file for Python backend
+├── .env.local.example                # template env file for Next.js dashboard
 ├── .gitignore
 ├── README.md
-├── requirements.txt              # Python deps
-├── package.json                  # Node deps
+├── requirements.txt                  # Python dependencies
+├── package.json                      # Node dependencies
 ├── tsconfig.json
 ├── next.config.mjs
 ├── tailwind.config.js
-└── utility/                      # catatan / referensi tambahan
+└── utility/                          # additional notes and references
 ```
 
 ---
 
-## Setup (untuk development lokal)
+## Local Setup (Development)
 
-### 1. Clone & Install
+### 1. Clone and Install
 
 ```bash
 git clone https://github.com/<username>/weather-alert-system.git
@@ -111,42 +126,42 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Konfigurasi `.env`
+### 2. Configure `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-Isi semua variabel (lihat bagian [Environment Variables](#environment-variables)).
+Fill in all variables as described in [Environment Variables](#environment-variables).
 
-### 3. Jalankan Lokal (mode loop)
+### 3. Run Locally (Loop Mode)
 
 ```bash
-python influx_weather_collector_loop.py
+python -m src.influx_weather_collector_loop
 ```
 
-Untuk menjalankan alert checker manual:
+To run the alert checker manually:
 
 ```bash
-python alert_checker.py
+python -m src.alert_checker
 ```
 
-Test koneksi Telegram:
+To test the Telegram connection:
 
 ```bash
-python test_telegram.py --rain
+python -m src.test_telegram --rain
 ```
 
 ---
 
-## Setup untuk GitHub Actions (deployment)
+## GitHub Actions Deployment
 
-Project ini didesain untuk berjalan otomatis via GitHub Actions — **tidak perlu server lokal**.
+The project is designed to run automatically via GitHub Actions, with no local server required.
 
-### Langkah 1: Push ke GitHub
+### Step 1: Push to GitHub
 
 ```bash
-git init                       # kalau belum
+git init                            # if not already a repository
 git add -A
 git commit -m "initial commit"
 git branch -M main
@@ -154,61 +169,61 @@ git remote add origin https://github.com/<username>/weather-alert-system.git
 git push -u origin main
 ```
 
-### Langkah 2: Tambahkan GitHub Secrets
+### Step 2: Add GitHub Secrets
 
-Masuk ke repo GitHub kamu, lalu:
+In your GitHub repository, navigate to:
 
 **Settings → Secrets and variables → Actions → New repository secret**
 
-Tambahkan 7 secret berikut (nama harus persis sama):
+Add the following eight secrets (names must match exactly):
 
-| Secret Name          | Isi / Contoh                                       |
-|----------------------|----------------------------------------------------|
-| `OPENWEATHER_API_KEY`| API key dari [openweathermap.org/api](https://openweathermap.org/api) |
-| `INFLUX_URL`         | `https://influxdb.asoytabang.online`               |
-| `INFLUX_TOKEN`       | API token InfluxDB kamu                            |
-| `INFLUX_ORG`         | Organization ID/name di InfluxDB                   |
-| `INFLUX_BUCKET`      | `weather`                                          |
-| `CITY`               | `Yogyakarta,ID`                                    |
-| `TELEGRAM_TOKEN`     | Token bot dari [@BotFather](https://t.me/BotFather)|
-| `TELEGRAM_CHAT_ID`   | Chat ID tujuan notifikasi (user / grup / channel)  |
+| Secret name             | Value / example                                     |
+|-------------------------|-----------------------------------------------------|
+| `OPENWEATHER_API_KEY`   | API key from openweathermap.org/api                 |
+| `INFLUX_URL`            | `https://influxdb.asoytabang.online`                |
+| `INFLUX_TOKEN`          | your InfluxDB API token                             |
+| `INFLUX_ORG`            | your InfluxDB organisation ID or name               |
+| `INFLUX_BUCKET`         | `weather`                                           |
+| `CITY`                  | `Yogyakarta,ID`                                     |
+| `TELEGRAM_TOKEN`        | bot token from BotFather                            |
+| `TELEGRAM_CHAT_ID`      | destination chat ID (user, group, or channel)       |
 
-> ⚠️ **Jangan pernah commit nilai asli ke repo.** Semua secret dibaca di runtime oleh workflow lewat `${{ secrets.NAMA }}`.
+Never commit real values to the repository. All secrets are read at runtime by the workflows via `${{ secrets.NAME }}`.
 
-### Langkah 3: Verifikasi Workflow
+### Step 3: Verify the Workflows
 
-Buka tab **Actions** di GitHub repo:
+Open the Actions tab in your GitHub repository:
 
-- Pilih workflow **Weather Collector** → **Run workflow** (test manual)
-- Pilih workflow **Weather Alert Checker** → **Run workflow** (test manual, opsional — alert terkirim kalau status berubah)
+- Select the **Weather Collector** workflow, then **Run workflow** for a manual test.
+- Select the **Weather Alert Checker** workflow, then **Run workflow** for a manual test. (Alerts are only sent on actual status transitions.)
 
-Kalau log hijau ✅ artinya konfigurasi benar.
+A green status indicates a correct configuration.
 
-### Langkah 4: Pantau Eksekusi
+### Step 4: Monitor Executions
 
-Tab **Actions** menampilkan:
+The Actions tab displays:
 
-- Daftar semua run (otomatis & manual)
-- Log stdout/stderr tiap step
-- Status: ✅ sukses / ❌ gagal / ⏭️ skipped
+- A list of all runs (scheduled and manual).
+- Step-by-step stdout and stderr logs.
+- Status: success, failure, or skipped.
 
-Untuk cek data di InfluxDB, gunakan InfluxDB UI atau query Flux via CLI.
+To inspect the data in InfluxDB, use the InfluxDB UI or run a Flux query via the CLI.
 
 ---
 
 ## Environment Variables
 
-| Variable                | Deskripsi                                          | Wajib |
-|-------------------------|----------------------------------------------------|-------|
-| `OPENWEATHER_API_KEY`   | API key OpenWeatherMap                              | ✅   |
-| `CITY`                  | Kota yang dimonitor (default: `Yogyakarta,ID`)      | ✅   |
-| `INFLUX_URL`            | URL InfluxDB (default: `https://influxdb.asoytabang.online`) | ✅ |
-| `INFLUX_TOKEN`          | API token InfluxDB                                  | ✅   |
-| `INFLUX_ORG`            | Organization ID/name                               | ✅   |
-| `INFLUX_BUCKET`         | Bucket name (`weather`)                             | ✅   |
-| `TELEGRAM_TOKEN`        | Token bot dari BotFather                            | ✅ (alert checker saja) |
-| `TELEGRAM_CHAT_ID`      | Chat ID tujuan notifikasi                           | ✅ (alert checker saja) |
-| `FETCH_INTERVAL_SECONDS`| (legacy loop only) Interval fetch dalam detik       | ❌   |
+| Variable                 | Description                                          | Required |
+|--------------------------|------------------------------------------------------|----------|
+| `OPENWEATHER_API_KEY`    | OpenWeatherMap API key                               | Yes      |
+| `CITY`                   | Monitored city (default: `Yogyakarta,ID`)            | Yes      |
+| `INFLUX_URL`             | InfluxDB URL (default: `https://influxdb.asoytabang.online`) | Yes |
+| `INFLUX_TOKEN`           | InfluxDB API token                                   | Yes      |
+| `INFLUX_ORG`             | InfluxDB organisation ID or name                     | Yes      |
+| `INFLUX_BUCKET`          | Bucket name (`weather`)                              | Yes      |
+| `TELEGRAM_TOKEN`         | Bot token from BotFather                             | Yes (alert checker only) |
+| `TELEGRAM_CHAT_ID`       | Destination chat ID for notifications                | Yes (alert checker only) |
+| `FETCH_INTERVAL_SECONDS` | (legacy loop only) Fetch interval in seconds         | No       |
 
 ---
 
@@ -216,194 +231,156 @@ Untuk cek data di InfluxDB, gunakan InfluxDB UI atau query Flux via CLI.
 
 **Bucket:** `weather`
 
-**Measurement `weather_data`** (ditulis tiap collector run):
+**Measurement `weather_data`** (written on each collector run):
 
-| Field              | Type    | Keterangan                              |
-|--------------------|---------|-----------------------------------------|
-| `temp`             | float   | Suhu (°C)                               |
-| `humidity`         | int     | Kelembapan (%)                          |
-| `rain_probability` | float   | Probabilitas hujan 0–100% (dari `pop`)  |
-| `weather_main`     | string  | Clear / Clouds / Rain / dll             |
+| Field              | Type    | Description                            |
+|--------------------|---------|----------------------------------------|
+| `temp`             | float   | Temperature in degrees Celsius         |
+| `humidity`         | int     | Relative humidity in percent           |
+| `rain_probability` | float   | Probability of precipitation, 0 to 100 |
+| `weather_main`     | string  | Clear, Clouds, Rain, and so on         |
 
-Tag: `city` (lowercase, misal `yogyakarta`)
+Tag: `city` (lowercase, for example `yogyakarta`).
 
-**Measurement `alert_state`** (ditulis saat transisi status):
+**Measurement `alert_state`** (written on status transitions):
 
-| Field    | Type   | Keterangan                  |
-|----------|--------|-----------------------------|
-| `status` | string | `"normal"` atau `"rain"`    |
+| Field    | Type   | Description                   |
+|----------|--------|-------------------------------|
+| `status` | string | `"normal"` or `"rain"`        |
 
-Tag: `city` (sama dengan measurement di atas)
+Tag: `city` (same as above).
 
 ---
 
-## Cara Kerja Anti-Spam
+## Anti-Spam Behaviour
 
-Status terakhir (`normal` / `rain`) disimpan di InfluxDB measurement `alert_state` — **bukan** di file lokal lagi, karena GitHub Actions runner fresh setiap kali job dijalankan.
+The last known status (`normal` or `rain`) is stored in the InfluxDB measurement `alert_state`, not in a local file. The local-file approach is unsuitable for GitHub Actions because each runner is ephemeral.
 
-Flow tiap alert checker run:
+Flow for each alert checker run:
 
-1. Query data cuaca **terbaru** dari `weather_data` (1 jam terakhir)
-2. Deteksi status saat ini berdasarkan threshold
-3. Query status terakhir dari `alert_state` (30 hari terakhir, `last()`)
-4. **Kalau status BERUBAH**: kirim Telegram + tulis status baru ke InfluxDB
-5. **Kalau status SAMA**: diam (no-op)
+1. Query the most recent reading from `weather_data` (last hour).
+2. Compute the current status against the thresholds.
+3. Query the last status from `alert_state` (last 30 days, `last()`).
+4. If the status has changed, send the Telegram message and write the new status to InfluxDB.
+5. If the status is unchanged, do nothing (no-op).
 
 ---
 
 ## Troubleshooting
 
-**Workflow gagal dengan "Missing required env vars":**
-→ Cek semua secret sudah ditambahkan di Settings → Secrets.
+**Workflow fails with "Missing required env vars":**
+Ensure all eight secrets are added under Settings → Secrets.
 
-**Telegram gak nyampe:**
-→ Cek `TELEGRAM_CHAT_ID` benar (user = angka positif, grup = negatif, channel = `-100...`).
-→ Bot harus sudah di-add ke chat. Untuk channel, bot harus admin.
+**Telegram messages are not delivered:**
+Verify that `TELEGRAM_CHAT_ID` is correct (positive number for users, negative for groups, `-100...` for channels). The bot must already be a member of the chat. For channels, the bot must be an administrator.
 
-**InfluxDB write gagal:**
-→ Cek token masih valid dan belum expired.
-→ Cek `INFLUX_ORG` dan `INFLUX_BUCKET` persis sama dengan yang ada di InfluxDB UI.
+**InfluxDB writes fail:**
+Verify that the token is still valid and has not expired, and that `INFLUX_ORG` and `INFLUX_BUCKET` match exactly what is configured in the InfluxDB UI.
 
-**Data lama gak nongol di InfluxDB:**
-→ Pastikan collector jalan (lihat tab Actions). Workflow pertama mungkin delay ~20 menit dari push.
-
----
-
-## Roadmap
-
-- [x] MVP — fetch 1 kota + alert sederhana
-- [x] Migrasi ke GitHub Actions (serverless)
-- [x] Anti-spam via InfluxDB `alert_state`
-- [ ] Multi-kota dengan konfigurasi per kota
-- [ ] Alert suhu ekstrem
-- [ ] Integrasi Grafana untuk dashboard time-series
-- [ ] Web dashboard (Next.js + Recharts) ← **done**
+**No historical data appears in InfluxDB:**
+Confirm that the collector is running (check the Actions tab). The first scheduled run may be delayed by up to 20 minutes after the initial push.
 
 ---
 
 ## Dashboard (Next.js)
 
-Repo ini juga berisi **web dashboard** (Next.js 14 App Router + TypeScript + Tailwind + Recharts) di **root yang sama** dengan backend Python. Dashboard cuma **membaca** data dari InfluxDB yang sama — backend Python tidak diubah dan tetap jalan otomatis via GitHub Actions.
+The repository also contains a web dashboard built with Next.js 14 (App Router, TypeScript, Tailwind) at the same root as the Python backend. The dashboard is read-only: it queries the same InfluxDB instance. The Python backend is unchanged and continues to run automatically via GitHub Actions.
 
-### Lokasi & struktur
+### Dashboard Features
 
-```
-root/
-├── app/                          # ← Next.js App Router
-│   ├── layout.tsx
-│   ├── page.tsx                  # dashboard utama (status cards + chart)
-│   ├── globals.css               # Tailwind
-│   ├── api/
-│   │   ├── weather/route.ts      # GET ?range=24h|7d|30d → time-series points
-│   │   └── status/route.ts       # GET → latest point + alert_state
-│   └── components/
-│       ├── StatusCards.tsx        # list-row style dengan [+] [!] [?] markers
-│       ├── WeatherChart.tsx       # recharts line chart dalam chart-tile
-│       ├── RangeSelector.tsx      # tab-style 24h/7d/30d
-│       ├── StatTiles.tsx          # 4 ASCII sparkline tiles
-│       └── TuiMockup.tsx          # hero dark surface + ASCII wordmark
-├── lib/influx.ts                 # InfluxDB client wrapper (server-side)
-├── package.json
-├── tsconfig.json
-├── next.config.mjs
-├── tailwind.config.js
-├── postcss.config.mjs
-├── .env.local.example            # template env untuk Next.js
-└── ... (backend Python, workflows, dll tetap di tempat masing-masing)
-```
+- **Current conditions panel** — list-row style with ASCII bracket markers `[+]`, `[!]`, `[?]`. Displays temperature, humidity, rain probability, condition, and alert status.
+- **Time-series chart (Recharts)** — temperature (solid line) and humidity (dashed line) with legend, rendered in the chart-tile pattern (hairline border, no rounded corners, figure caption).
+- **ASCII sparkline tiles** — four summary statistics (mean and max temperature, mean and max humidity) as sparse-line ASCII plots, following the chart-tile design pattern.
+- **Range selector** — 24 hours, 7 days, 30 days, with automatic downsampling via `aggregateWindow`.
+- **Auto-refresh** — every 2 minutes via client-side polling.
+- **Loading and error states** — a blinking cursor `[·]` while loading, an error block with the `[!]` marker on failure. The page never appears blank.
 
-> File Python di `src/`, workflow di `.github/workflows/`, dan `requirements.txt` **tidak disentuh** oleh setup Next.js.
+### Design System
 
-### Fitur dashboard
+The dashboard follows a terminal-native, manpage-style design system:
 
-- 🌡️ **Current conditions** — list-row style dengan ASCII bracket markers `[+]`, `[!]`, `[?]`. Temperature, humidity, rain probability, condition, alert status.
-- 📈 **Timeseries chart (recharts)** — temperature (solid) + humidity (dashed) dengan legend, di-render dalam `chart-tile` pattern (hairline border, no rounded, fig caption).
-- 📊 **ASCII sparkline tiles** — 4 summary stats (avg/max temp, avg/max humidity) sebagai sparse-line ASCII plots di atas canvas — sesuai `chart-tile` design pattern.
-- ⏱️ **Range selector** — 24h / 7d / 30d, dengan downsampling otomatis via `aggregateWindow`.
-- 🔄 **Auto-refresh** — tiap 2 menit (client-side `setInterval`).
-- ⚠️ **Loading & error state** — blinking cursor `[·]` saat loading, error block dengan `[!]` marker, halaman tidak pernah blank.
+| Aspect          | Treatment                                                                                       |
+|-----------------|-------------------------------------------------------------------------------------------------|
+| Font            | Berkeley Mono (paid) with JetBrains Mono via `next/font/google` as the open-source substitute. |
+| Canvas          | Warm cream `#fdfcfc` as the sole body background.                                               |
+| Dark surface    | Used only once on the page: the small `live` badge in the hero.                                 |
+| Borders         | 1px hairline `rgba(15, 0, 0, 0.12)` for section dividers and tile borders. No drop shadows.     |
+| Radius          | 0px for containers, 4px for interactive elements.                                               |
+| Bullets / icons | ASCII bracket markers `[+]`, `[-]`, `[!]`, `[?]`, `+`, `-` replace all iconography.             |
+| Spacing         | 96px section rhythm (`spacing.section`).                                                        |
+| Accent colours  | The Apple HIG semantic ramp is reserved for the in-product TUI and is not used on the dashboard. |
 
-### Design system
-
-Dashboard ini pakai **terminal-native / manpage design system** (lihat `DESIGN-opencode.ai.md` untuk full spec):
-
-| Aspek | Treatment |
-|---|---|
-| Font | Berkeley Mono (paid) → fallback ke JetBrains Mono via `next/font/google`. Single monospaced face, no sans/italic anywhere. |
-| Canvas | Warm cream `#fdfcfc` (`surface.canvas`) sebagai satu-satunya body background. |
-| Dark surface | Hanya **satu** di seluruh halaman: TUI mockup hero (`surface.dark` = `#201d1d`). |
-| Borders | 1px hairline `rgba(15,0,0,0.12)` untuk section divider & tile border. Tidak ada drop shadow. |
-| Radius | `0px` untuk containers, `4px` (`rounded.sm`) untuk interactive elements. |
-| Bullet / icon | ASCII bracket markers `[+]`, `[-]`, `[!]`, `[?]`, `+`, `−` sebagai ganti icon/SVG. |
-| Spacing | Section rhythm 96px (`spacing.section`). |
-| Wordmark | Block-pixel ASCII art di nav + di dalam hero TUI mockup. |
-| Accent colors | Apple HIG semantic ramp (blue, warning, danger, success) **tidak dipakai** di marketing chrome — reserved untuk in-product TUI. Status alerts pakai bracket + warna netral. |
-
-### Setup lokal
+### Local Setup
 
 ```bash
-# Install Bun dulu (https://bun.sh) — project ini pakai Bun sebagai package manager
+# Install Bun (https://bun.sh) if not already present:
 # curl -fsSL https://bun.sh/install | bash
 
 bun install
 cp .env.local.example .env.local
-# Edit .env.local: isi INFLUX_URL, INFLUX_TOKEN, INFLUX_ORG, INFLUX_BUCKET
+# Fill in INFLUX_URL, INFLUX_TOKEN, INFLUX_ORG, INFLUX_BUCKET in .env.local
 
 bun run dev
-# buka http://localhost:3000
+# Open http://localhost:3000
 ```
 
-Atau kalau mau pakai npm (tetap supported, lockfile akan jadi `package-lock.json`):
+npm is also supported; the lockfile will simply become `package-lock.json`.
 
-```bash
-npm install
-npm run dev
-```
-
-`.env.local` di-gitignore — jangan commit nilai asli.
+`.env.local` is git-ignored. Never commit real values.
 
 ### Environment Variables (Next.js)
 
-| Variable        | Deskripsi                                       |
-|-----------------|-------------------------------------------------|
-| `INFLUX_URL`    | URL InfluxDB (contoh: `https://influxdb.asoytabang.online`) |
-| `INFLUX_TOKEN`  | API token InfluxDB (read scope cukup)           |
-| `INFLUX_ORG`    | Organization ID/name                            |
-| `INFLUX_BUCKET` | Bucket name (`weather`)                          |
+| Variable        | Description                                                            |
+|-----------------|------------------------------------------------------------------------|
+| `INFLUX_URL`    | InfluxDB URL (for example `https://influxdb.asoytabang.online`)        |
+| `INFLUX_TOKEN`  | InfluxDB API token (read scope is sufficient)                          |
+| `INFLUX_ORG`    | InfluxDB organisation ID or name                                       |
+| `INFLUX_BUCKET` | Bucket name (default `weather`)                                        |
 
-### Deploy ke Vercel
+### Deployment to Vercel
 
-1. **Push repo ke GitHub** (kalau belum).
-2. Buka [vercel.com/new](https://vercel.com/new) → **Import Project** → pilih repo ini.
-3. **Framework Preset**: auto-detect sebagai Next.js.
-4. **Root Directory**: kosongkan (Next.js ada di root).
-5. Klik **Environment Variables**, tambahkan 4 variabel di atas (`INFLUX_URL`, `INFLUX_TOKEN`, `INFLUX_ORG`, `INFLUX_BUCKET`) dengan nilai yang sama seperti di `.env.local` / GitHub Secrets.
-6. Klik **Deploy**.
-7. Setelah deploy sukses, setiap push ke `main` akan auto-redeploy.
+1. Push the repository to GitHub.
+2. Open [vercel.com/new](https://vercel.com/new), then **Import Project** and select the repository.
+3. The **Framework Preset** is auto-detected as Next.js.
+4. Leave the **Root Directory** empty; Next.js lives at the root.
+5. In **Environment Variables**, add the four variables above with the same values as in `.env.local` and the GitHub Secrets.
+6. Click **Deploy**. Subsequent pushes to `main` trigger automatic redeployments.
 
-> 💡 Vercel otomatis membaca `package.json` dan menjalankan `npm run build`. Tidak perlu konfigurasi tambahan.
->
-> ⚠️ Region Vercel default (Washington) mungkin menambah latensi ~200-400ms ke InfluxDB di Asia. Untuk performa lebih baik, pakai Vercel region terdekat (Singapore) lewat Settings → Functions → Region.
+Notes:
+- Vercel reads `package.json` and runs `npm run build` automatically. No additional configuration is required.
+- The default Vercel region (Washington) may add 200 to 400 ms of latency to InfluxDB in Asia. For better performance, set the Vercel region to Singapore via Settings → Functions → Region.
 
-### API Endpoints (untuk debugging/testing)
+### API Endpoints (for debugging and testing)
 
 ```bash
-# Status terbaru (current weather + alert)
+# Latest status (current weather and alert)
 curl http://localhost:3000/api/status
 
-# Time-series points untuk chart
-curl 'http://localhost:3000/api/weather?range=24h'   # 24 jam, window 15 menit
-curl 'http://localhost:3000/api/weather?range=7d'    # 7 hari,  window 1 jam
-curl 'http://localhost:3000/api/weather?range=30d'   # 30 hari, window 3 jam
+# Time-series points for the chart
+curl 'http://localhost:3000/api/weather?range=24h'   # last 24 hours, 15-minute window
+curl 'http://localhost:3000/api/weather?range=7d'    # last 7 days,  1-hour window
+curl 'http://localhost:3000/api/weather?range=30d'   # last 30 days, 3-hour window
 ```
 
-Response `weather` shape:
+Response shape for `/api/weather`:
 ```json
-{ "range": "24h", "points": [{ "time": "2026-09-05T10:00:00.000Z", "temp": 28.4, "humidity": 76, "rain_probability": 12.5 }] }
+{ "range": "24h", "points": [{ "time": "2026-09-05T10:00:00.000Z", "temp": 28.4, "humidity": 76 }] }
 ```
 
 ---
 
-## Lisensi
+## Roadmap
 
-MIT — bebas digunakan, dimodifikasi, dan didistribusikan dengan menyertakan atribusi.
+- [x] MVP: single-city fetch with a simple alert.
+- [x] Migration to GitHub Actions (serverless execution).
+- [x] Anti-spam via InfluxDB `alert_state`.
+- [ ] Multi-city support with per-city configuration.
+- [ ] Extreme-temperature alerts.
+- [ ] Grafana integration for time-series dashboards.
+- [x] Web dashboard (Next.js + Recharts).
+
+---
+
+## License
+
+MIT. Free to use, modify, and distribute with attribution.
