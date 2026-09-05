@@ -9,7 +9,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -19,10 +18,18 @@ wheels/
 .installed.cfg
 *.egg
 
+# Python "lib/" pattern is for egg build artifacts in subdirs only,
+# NOT our top-level lib/ directory used by Next.js.
+/lib/
+/*/lib/
+!lib/
+
 .venv/
 venv/
 env/
 ENV/
+
+# --- Local env files (Python & Next.js share these patterns) ---
 .env
 .env.local
 .env.*.local
@@ -62,10 +69,8 @@ htmlcov/
 
 instance/
 *.sqlite
-*.sqlite3
+*.sqlite3/
 *.db
-
-node_modules/
 
 *.tmp
 *.bak
@@ -74,3 +79,18 @@ node_modules/
 
 last_status.txt
 alert_state.*
+
+# --- Node.js / Next.js ---
+node_modules/
+.next/
+out/
+build/
+.next/cache/
+
+# --- Vercel ---
+.vercel/
+
+# --- TypeScript build info ---
+*.tsbuildinfo
+next-env.d.ts
+
