@@ -1,11 +1,11 @@
 import os
+import sys
 import logging
 import warnings
 import requests
-from pathlib import Path
 from dotenv import load_dotenv
 from datetime import datetime, timezone
-from influxdb_client import InfluxDBClient
+from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.exceptions import InfluxDBError
 
 warnings.filterwarnings(
@@ -23,15 +23,20 @@ INFLUX_ORG = os.getenv("INFLUX_ORG")
 INFLUX_BUCKET = os.getenv("INFLUX_BUCKET")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+CITY = os.getenv("CITY", "Yogyakarta,ID")
 
 _RAIN_PROBABILITY_THRESHOLD = 60.0
 _RAIN_WEATHER_MAIN = "Rain"
 _STATUS_NORMAL = "normal"
 _STATUS_RAIN = "rain"
 _LOOKBACK_HOURS = 1
-_STATE_FILE = Path(__file__).resolve().parent / "last_status.txt"
+_STATE_LOOKBACK_DAYS = 30
 _TELEGRAM_TIMEOUT = 10
 _INFLUX_TIMEOUT = 10_000
+
+MEASUREMENT_WEATHER = "weather_data"
+MEASUREMENT_ALERT_STATE = "alert_state"
+TAG_CITY = CITY.split(",")[0].lower()
 
 _required = {
     "INFLUX_TOKEN": INFLUX_TOKEN,
@@ -59,7 +64,8 @@ def query_latest_weather(client: InfluxDBClient) -> dict | None:
     flux = f'''
 from(bucket: "{INFLUX_BUCKET}")
   |> range(start: -{_LOOKBACK_HOURS}h)
-  |> filter(fn: (r) => r._measurement == "weather_data")
+  |> filter(fn: (r) => r._measurement == "{MEASUREMENT_WEATHER}")
+  |> filter(fn: (r) => r.city == "{TAG_CITY}")
   |> filter(fn: (r) => r._field == "rain_probability" or r._field == "weather_main")
   |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
   |> sort(columns: ["_time"], desc: true)
@@ -77,8 +83,47 @@ from(bucket: "{INFLUX_BUCKET}")
         log.warning("No weather data found in last %d hour(s)", _LOOKBACK_HOURS)
         return None
     except (InfluxDBError, ConnectionError, OSError) as e:
-        log.error("InfluxDB query failed: %s", e)
+        log.error("InfluxDB query (weather) failed: %s", e)
         return None
+
+
+def query_last_alert_state(client: InfluxDBClient) -> str:
+    flux = f'''
+from(bucket: "{INFLUX_BUCKET}")
+  |> range(start: -{_STATE_LOOKBACK_DAYS}d)
+  |> filter(fn: (r) => r._measurement == "{MEASUREMENT_ALERT_STATE}")
+  |> filter(fn: (r) => r.city == "{TAG_CITY}")
+  |> filter(fn: (r) => r._field == "status")
+  |> last()
+'''
+    try:
+        tables = client.query_api().query(flux, org=INFLUX_ORG)
+        for table in tables:
+            for record in table.records:
+                value = str(record.get_value()).strip().lower()
+                if value in (_STATUS_NORMAL, _STATUS_RAIN):
+                    return value
+        log.info("No previous alert_state found, assuming '%s'", _STATUS_NORMAL)
+        return _STATUS_NORMAL
+    except (InfluxDBError, ConnectionError, OSError) as e:
+        log.error("InfluxDB query (alert_state) failed: %s", e)
+        return _STATUS_NORMAL
+
+
+def write_alert_state(client: InfluxDBClient, status: str) -> bool:
+    point = (
+        Point(MEASUREMENT_ALERT_STATE)
+        .tag("city", TAG_CITY)
+        .field("status", status)
+    )
+    try:
+        write_api = client.write_api()
+        write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
+        log.info("alert_state written to InfluxDB: '%s'", status)
+        return True
+    except (InfluxDBError, ConnectionError, OSError) as e:
+        log.error("InfluxDB write (alert_state) failed: %s", e)
+        return False
 
 
 def detect_status(weather: dict) -> str:
@@ -93,28 +138,6 @@ def detect_status(weather: dict) -> str:
 
     is_rain = rain_pop > _RAIN_PROBABILITY_THRESHOLD or weather_main == _RAIN_WEATHER_MAIN
     return _STATUS_RAIN if is_rain else _STATUS_NORMAL
-
-
-def read_last_status() -> str:
-    if not _STATE_FILE.exists():
-        log.info("No previous state file found, assuming '%s'", _STATUS_NORMAL)
-        return _STATUS_NORMAL
-    try:
-        value = _STATE_FILE.read_text(encoding="utf-8").strip().lower()
-        if value in (_STATUS_NORMAL, _STATUS_RAIN):
-            return value
-        log.warning("Unrecognized state value '%s', assuming '%s'", value, _STATUS_NORMAL)
-        return _STATUS_NORMAL
-    except OSError as e:
-        log.error("Failed to read state file: %s", e)
-        return _STATUS_NORMAL
-
-
-def write_last_status(status: str) -> None:
-    try:
-        _STATE_FILE.write_text(status, encoding="utf-8")
-    except OSError as e:
-        log.error("Failed to write state file: %s", e)
 
 
 def send_telegram(message: str) -> bool:
@@ -164,10 +187,12 @@ def build_message(status: str, weather: dict) -> str:
 
 
 def main() -> int:
-    log.info("Running rain alert check (city measurement='weather_data')")
+    log.info("Running rain alert check (city=%s)", TAG_CITY)
 
     try:
-        client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG, timeout=_INFLUX_TIMEOUT)
+        client = InfluxDBClient(
+            url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG, timeout=_INFLUX_TIMEOUT
+        )
     except (InfluxDBError, ConnectionError, OSError) as e:
         log.error("InfluxDB client init failed: %s", e)
         return 1
@@ -179,15 +204,17 @@ def main() -> int:
             return 0
 
         current_status = detect_status(weather)
-        last_status = read_last_status()
+        last_status = query_last_alert_state(client)
         log.info("Status transition: '%s' -> '%s'", last_status, current_status)
 
         if current_status != last_status:
             message = build_message(current_status, weather)
             sent = send_telegram(message)
             if sent:
-                write_last_status(current_status)
-                log.info("State updated to '%s'", current_status)
+                if write_alert_state(client, current_status):
+                    log.info("State updated to '%s'", current_status)
+                else:
+                    log.warning("State NOT updated because InfluxDB write failed")
             else:
                 log.warning("State NOT updated because Telegram send failed")
         else:
@@ -201,4 +228,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
