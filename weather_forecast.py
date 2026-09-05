@@ -1,10 +1,17 @@
-import requests
+import os
 import json
+import requests
 from datetime import datetime
+from dotenv import load_dotenv
 
-API_KEY = "a25b0f174716fa4bc9f2591a9ba8b360"
+load_dotenv()
+
+API_KEY = os.getenv("OPENWEATHER_API_KEY")
 BASE_URL = "https://api.openweathermap.org/data/2.5/forecast"
-CITY = "Yogyakarta,ID"
+CITY = os.getenv("CITY", "Yogyakarta,ID")
+
+if not API_KEY:
+    raise SystemExit("OPENWEATHER_API_KEY is not set. Copy .env.example to .env and fill it in.")
 
 params = {
     "q": CITY,

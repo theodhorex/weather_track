@@ -1,20 +1,45 @@
 import os
 import time
 import logging
+import warnings
 import requests
 from datetime import datetime
+from dotenv import load_dotenv
 from influxdb_client import InfluxDBClient, Point, WriteOptions
 from influxdb_client.client.exceptions import InfluxDBError
 
-API_KEY = "a25b0f174716fa4bc9f2591a9ba8b360"
-BASE_URL = "https://api.openweathermap.org/data/2.5/forecast"
-CITY = "Yogyakarta,ID"
-INTERVAL_SECONDS = 5 * 60
+warnings.filterwarnings(
+    "ignore",
+    message=r".*URLs without a scheme.*",
+    category=FutureWarning,
+    module=r"urllib3.*",
+)
 
-INFLUX_URL = "http://localhost:8086"
-INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "YOUR_INFLUXDB_TOKEN")
-INFLUX_ORG = os.getenv("INFLUX_ORG", "YOUR_ORG")
-INFLUX_BUCKET = "weather"
+load_dotenv()
+
+API_KEY = os.getenv("OPENWEATHER_API_KEY")
+BASE_URL = "https://api.openweathermap.org/data/2.5/forecast"
+CITY = os.getenv("CITY")
+INTERVAL_SECONDS = int(os.getenv("FETCH_INTERVAL_SECONDS", "1200"))
+
+INFLUX_URL = "https://influxdb.asoytabang.online"
+INFLUX_TOKEN = os.getenv("INFLUX_TOKEN")
+INFLUX_ORG = os.getenv("INFLUX_ORG")
+INFLUX_BUCKET = os.getenv("INFLUX_BUCKET")
+
+_required = {
+    "OPENWEATHER_API_KEY": API_KEY,
+    "CITY": CITY,
+    "INFLUX_TOKEN": INFLUX_TOKEN,
+    "INFLUX_ORG": INFLUX_ORG,
+    "INFLUX_BUCKET": INFLUX_BUCKET,
+}
+_missing = [k for k, v in _required.items() if not v]
+if _missing:
+    raise SystemExit(
+        f"Missing required env vars: {', '.join(_missing)}. "
+        "Copy .env.example to .env and fill it in."
+    )
 
 MEASUREMENT = "weather_data"
 TAG_CITY = CITY.split(",")[0].lower()

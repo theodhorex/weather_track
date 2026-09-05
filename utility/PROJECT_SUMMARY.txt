@@ -1,0 +1,234 @@
+================================================================================
+WEATHER TRACKER — PROJECT SUMMARY
+================================================================================
+
+Project ini adalah sistem monitoring cuaca real-time berbasis Python yang
+mengambil data prakiraan cuaca dari OpenWeatherMap API, menyimpannya ke
+InfluxDB (hosted), dan mengirim alert hujan ke Telegram Bot ketika ada
+kondisi "akan hujan" terdeteksi.
+
+
+================================================================================
+1. DAFTAR FILE
+================================================================================
+
+FILE YANG SUDAH ADA SEBELUMNYA (tidak diubah strukturnya)
+-------------------------------------------------------
+- weather_forecast.py
+  Script sederhana untuk menembak OpenWeatherMap API dan menampilkan
+  semua data yang tersedia dari endpoint forecast (3-hourly, 5 hari).
+  Berguna untuk debugging / eksplorasi response API. Tidak menyimpan
+  data ke mana pun — murni print ke stdout.
+
+FILE YANG DIBUAT / DI-UPDATE PADA SESI INI
+-----------------------------------------
+- influx_weather_collector.py
+  Collector daemon yang berjalan terus-menerus (loop). Tiap N detik/menit
+  mengambil 1 forecast terdekat dari OpenWeatherMap lalu menulisnya ke
+  InfluxDB. Berjalan sebagai background service.
+
+- alert_checker.py
+  Alert checker one-shot. Tiap kali dijalankan, query data terbaru dari
+  InfluxDB, deteksi kondisi hujan, lalu kirim notifikasi ke Telegram
+  HANYA jika status berubah (anti-spam).
+
+- .env.example
+  Template konfigurasi environment. Berisi placeholder untuk semua
+  variabel yang dibutuhkan. File ini di-commit ke repo.
+  Variabel: OPENWEATHER_API_KEY, INFLUX_URL, INFLUX_TOKEN, INFLUX_ORG,
+  INFLUX_BUCKET, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, CITY, FETCH_INTERVAL_SECONDS.
+
+- .gitignore
+  Ignore Python cache, virtualenv, .env, secrets, IDE config, logs, dll.
+
+- .env  (TIDAK di-commit, di-gitignore)
+  File konfigurasi aktual berisi nilai asli (API key, token, chat ID).
+
+- README.md
+  (sudah ada sebelumnya, tidak diubah pada sesi ini)
+
+- WEATHER_ALERT_SYSTEM.md
+  (sudah ada sebelumnya, tidak diubah pada sesi ini)
+
+
+================================================================================
+2. ARSITEKTUR & ALUR DATA (END-TO-END FLOW)
+================================================================================
+
+   ┌────────────────────┐
+   │  OpenWeatherMap    │
+   │  Forecast API      │
+   │  (5-day / 3-hour)  │
+   └─────────┬──────────┘
+             │  HTTPS GET
+             │  q=Yogyakarta,ID
+             │  appid=API_KEY
+             │  units=metric
+             │
+             ▼
+   ┌────────────────────────────────────────────────────────┐
+   │ influx_weather_collector.py  (loop, tiap 20 menit)     │
+   │                                                        │
+   │  1. fetch_weather() → requests GET ke endpoint forecast │
+   │  2. Ambil data["list"][0] (forecast terdekat)          │
+   │  3. build_point() → buat InfluxDB Point                │
+   │  4. write_api.write() → kirim ke InfluxDB              │
+   └─────────────────────┬──────────────────────────────────┘
+                         │  Write
+                         ▼
+   ┌────────────────────────────────────────────────────────┐
+   │  InfluxDB (https://influxdb.asoytabang.online)         │
+   │                                                        │
+   │  Bucket  : weather                                     │
+   │  Measurement : weather_data                            │
+   │  Tag     : city = "yogyakarta"                         │
+   │  Field   : - temp (float, °C)                          │
+   │             - humidity (int, %)                        │
+   │             - rain_probability (float, 0-100 %)        │
+   │             - weather_main (string: Clear/Rain/Clouds) │
+   └─────────────────────┬──────────────────────────────────┘
+                         │  Flux Query (one-shot)
+                         │  range: -1h, sort desc, limit 1
+                         ▼
+   ┌────────────────────────────────────────────────────────┐
+   │ alert_checker.py  (one-shot per eksekusi)              │
+   │                                                        │
+   │  1. query_latest_weather() → baca 1 point terbaru      │
+   │  2. detect_status() → tentukan "rain" atau "normal"    │
+   │  3. read_last_status() → baca last_status.txt          │
+   │  4. Compare current vs last:                            │
+   │       - normal → rain : kirim alert 🌧️ + update file  │
+   │       - rain   → normal: kirim notif ☀️  + update file │
+   │       - sama        : diam (anti-spam)                 │
+   └─────────────────────┬──────────────────────────────────┘
+                         │  HTTPS POST sendMessage
+                         ▼
+   ┌────────────────────┐
+   │  Telegram Bot API  │
+   │  → User Chat       │
+   └────────────────────┘
+
+ORCHESTRATION:
+- influx_weather_collector.py  → dijalankan sebagai service / loop
+- alert_checker.py             → dijadwalkan via Windows Task Scheduler
+                                  (misal tiap 5–10 menit)
+
+
+================================================================================
+3. SCHEMA INFLUXDB
+================================================================================
+
+Bucket      : weather
+Measurement : weather_data
+Tags        : city (string, lowercase, misal "yogyakarta")
+Fields      :
+  - temp              (float)   → suhu dalam °C
+  - humidity          (int)     → kelembapan relatif dalam %
+  - rain_probability  (float)   → probabilitas hujan 0–100 (dari field "pop")
+  - weather_main      (string)  → kategori cuaca utama (Clear, Clouds, Rain, …)
+
+Time        : auto-generated oleh InfluxDB saat write (server timestamp).
+
+
+================================================================================
+4. KONFIGURASI (.env)
+================================================================================
+
+Semua credential dan parameter runtime dibaca dari .env via python-dotenv.
+File .env.example berisi template, .env berisi nilai asli (tidak di-commit).
+
+Variabel:
+  OPENWEATHER_API_KEY    API key dari akun OpenWeatherMap
+  INFLUX_URL             Endpoint InfluxDB (default https://influxdb.asoytabang.online)
+  INFLUX_TOKEN           Token akses InfluxDB
+  INFLUX_ORG             Organization ID/name di InfluxDB
+  INFLUX_BUCKET          Nama bucket (default: weather)
+  TELEGRAM_TOKEN         Token bot dari @BotFather
+  TELEGRAM_CHAT_ID       Chat ID tujuan notifikasi
+  CITY                   Lokasi query (default: Yogyakarta,ID)
+  FETCH_INTERVAL_SECONDS Interval collector (default: 1200 = 20 menit)
+
+
+================================================================================
+5. LOGIC DETEKSI HUJAN (alert_checker.py)
+================================================================================
+
+Threshold (konstanta di alert_checker.py, mudah diubah):
+  _RAIN_PROBABILITY_THRESHOLD = 60.0
+  _RAIN_WEATHER_MAIN         = "Rain"
+
+Status "rain" jika:
+  rain_probability > 60%   ATAU   weather_main == "Rain"
+
+Status "normal" jika kedua kondisi di atas tidak terpenuhi.
+
+ANTI-SPAM:
+- Status terakhir disimpan ke file lokal last_status.txt (di samping script).
+- Alasan pakai file lokal (bukan InfluxDB): lebih sederhana, tidak butuh
+  round-trip extra ke InfluxDB, dan data yang disimpan hanya 1 string kecil
+  (idempotent write). Trade-off: tidak sinkron antar host, tapi karena
+  script ini hanya dijalankan dari satu node (Task Scheduler), hal ini
+  bukan masalah.
+- Alert HANYA dikirim saat transisi:
+    normal → rain  → kirim alert hujan 🌧️
+    rain   → normal→ kirim notifikasi reda ☀️
+    rain   → rain  → diam
+    normal → normal → diam
+- State hanya di-update jika Telegram send berhasil (retry-safe).
+
+
+================================================================================
+6. LIBRARY YANG DIGUNAKAN
+================================================================================
+
+  requests           HTTP client (ke OpenWeatherMap & Telegram)
+  influxdb-client    SDK InfluxDB v2 (query + write)
+  python-dotenv      Loader .env
+  logging            Built-in, untuk log terstruktur
+  warnings           Built-in, untuk suppress FutureWarning urllib3
+
+Catatan: influxdb-client 1.50.0 + urllib3 >= 2.0 menghasilkan
+FutureWarning "URLs without a scheme" yang merupakan bug internal
+library influxdb-client (bukan dari konfigurasi kita). Kedua script
+sudah menambah warnings.filterwarnings() untuk suppress warning
+tersebut secara spesifik.
+
+
+================================================================================
+7. CARA MENJALANKAN
+================================================================================
+
+Setup sekali:
+  1. cp .env.example .env
+  2. Isi semua nilai di .env
+  3. pip install -r requirements.txt  (atau install manual:
+     pip install requests influxdb-client python-dotenv)
+
+Menjalankan collector (loop kontinyu):
+  python influx_weather_collector.py
+  (atau jalankan sebagai Windows Service / background process)
+
+Menjalankan alert checker (satu eksekusi):
+  python alert_checker.py
+
+ Menjadwalkan alert checker via Windows Task Scheduler:
+  - Trigger : tiap 5–10 menit
+  - Action  : Start a program → python.exe
+  - Argument: path\to\alert_checker.py
+  - Start in: path\to\project\
+
+
+================================================================================
+8. TESTING & DEBUGGING
+================================================================================
+
+- weather_forecast.py      → cepat cek response API OpenWeatherMap
+- alert_checker.py --debug → cek logic deteksi + query ke InfluxDB
+- Log output   → perhatikan level INFO untuk happy-path,
+                  ERROR untuk failure (network, auth, parse)
+- last_status.txt → bisa dihapus manual untuk reset state ke "normal"
+
+
+================================================================================
+END OF SUMMARY
+================================================================================
