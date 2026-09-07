@@ -41,4 +41,4 @@ jobs:
           INFLUX_ORG: ${{ secrets.INFLUX_ORG }}
           INFLUX_BUCKET: ${{ secrets.INFLUX_BUCKET }}
           CITY: ${{ secrets.CITY }}
-        run: python influx_weather_collector.py
+        run: python -m src.influx_weather_collector
