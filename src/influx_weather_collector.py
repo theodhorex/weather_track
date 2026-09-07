@@ -4,7 +4,7 @@ import logging
 import warnings
 import requests
 from dotenv import load_dotenv
-from influxdb_client import InfluxDBClient, Point, WriteOptions
+from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.exceptions import InfluxDBError
 
 warnings.filterwarnings(
@@ -79,10 +79,9 @@ def run_once() -> bool:
         point = build_point(payload)
 
         with InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG, timeout=_INFLUX_TIMEOUT) as client:
-            write_api = client.write_api(
-                write_options=WriteOptions(batch_size=1, flush_interval=1_000)
-            )
+            write_api = client.write_api()
             write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
+            write_api.close()
 
         log.info(
             "Saved -> city=%s temp=%.2f humidity=%d rain=%.1f%% weather=%s",
