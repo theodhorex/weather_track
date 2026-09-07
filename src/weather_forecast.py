@@ -13,49 +13,54 @@ CITY = os.getenv("CITY", "Yogyakarta,ID")
 if not API_KEY:
     raise SystemExit("OPENWEATHER_API_KEY is not set. Copy .env.example to .env and fill it in.")
 
-params = {
-    "q": CITY,
-    "appid": API_KEY,
-    "units": "metric"
-}
 
-try:
-    response = requests.get(BASE_URL, params=params, timeout=10)
-    response.raise_for_status()
-    data = response.json()
+def main():
+    params = {
+        "q": CITY,
+        "appid": API_KEY,
+        "units": "metric"
+    }
 
-    city = data['city']
-    print("=" * 60)
-    print(f"=== Weather Forecast for {CITY} ===")
-    print("=" * 60)
-    print(f"City ID        : {city.get('id')}")
-    print(f"City Name      : {city.get('name')}")
-    print(f"Country        : {city.get('country')}")
-    print(f"Timezone       : {city.get('timezone')} seconds (UTC{city.get('timezone', 0)/3600:+.0f})")
-    print(f"Sunrise        : {datetime.fromtimestamp(city.get('sunrise')).strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Sunset         : {datetime.fromtimestamp(city.get('sunset')).strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Population     : {city.get('population')}")
-    print(f"Coord (lat,lon): {city.get('coord', {}).get('lat')}, {city.get('coord', {}).get('lon')}")
-    print(f"Total Forecasts: {len(data['list'])}")
-    print("=" * 60)
+    try:
+        response = requests.get(BASE_URL, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
 
-    for idx, item in enumerate(data['list'], 1):
-        dt = datetime.fromtimestamp(item['dt'])
-        time_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+        city = data['city']
+        print("=" * 60)
+        print(f"=== Weather Forecast for {CITY} ===")
+        print("=" * 60)
+        print(f"City ID        : {city.get('id')}")
+        print(f"City Name      : {city.get('name')}")
+        print(f"Country        : {city.get('country')}")
+        print(f"Timezone       : {city.get('timezone')} seconds (UTC{city.get('timezone', 0)/3600:+.0f})")
+        print(f"Sunrise        : {datetime.fromtimestamp(city.get('sunrise')).strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Sunset         : {datetime.fromtimestamp(city.get('sunset')).strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Population     : {city.get('population')}")
+        print(f"Coord (lat,lon): {city.get('coord', {}).get('lat')}, {city.get('coord', {}).get('lon')}")
+        print(f"Total Forecasts: {len(data['list'])}")
+        print("=" * 60)
 
-        main = item.get('main', {})
-        weather_list = item.get('weather', [])
-        clouds = item.get('clouds', {})
-        wind = item.get('wind', {})
-        rain = item.get('rain', {})
-        snow = item.get('snow', {})
-        sys_data = item.get('sys', {})
+        for idx, item in enumerate(data['list'], 1):
+            dt = datetime.fromtimestamp(item['dt'])
+            time_str = dt.strftime('%Y-%m-%d %H:%M:%S')
 
-        print(f"\n--- Forecast #{idx} ---")
-        print(f"Time          : {time_str}")
-        print(f"Weather       : {weather_list[0].get('main')} - {weather_list[0].get('description')}")
-        print(f"Weather ID    : {weather_list[0].get('id')}")
-        print(f"Icon          : {weather_list[0].get('icon')}")
+            main = item.get('main', {})
+            weather_list = item.get('weather', [])
+            clouds = item.get('clouds', {})
+            wind = item.get('wind', {})
+            rain = item.get('rain', {})
+            snow = item.get('snow', {})
+            sys_data = item.get('sys', {})
+
+            print(f"\n--- Forecast #{idx} ---")
+            print(f"Time          : {time_str}")
+            if weather_list:
+                print(f"Weather       : {weather_list[0].get('main')} - {weather_list[0].get('description')}")
+                print(f"Weather ID    : {weather_list[0].get('id')}")
+                print(f"Icon          : {weather_list[0].get('icon')}")
+            else:
+                print("Weather       : N/A")
 
         print(f"\n[Main]")
         print(f"  Temperature : {main.get('temp')}°C")
@@ -91,14 +96,18 @@ try:
         print(f"\n[Probability]")
         print(f"  Precipitation: {item.get('pop', 0) * 100:.0f}%")
 
-        print(f"\n[System Info]")
-        print(f"  Pod (part of day): {sys_data.get('pod')}")
+            print(f"\n[System Info]")
+            print(f"  Pod (part of day): {sys_data.get('pod')}")
 
-        print("-" * 60)
+            print("-" * 60)
 
-except requests.exceptions.RequestException as e:
-    print(f"Error fetching data: {e}")
-except KeyError as e:
-    print(f"Unexpected data format: missing key {e}")
-except json.JSONDecodeError:
-    print("Error: Invalid JSON response")
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching data: {e}")
+    except KeyError as e:
+        print(f"Unexpected data format: missing key {e}")
+    except json.JSONDecodeError:
+        print("Error: Invalid JSON response")
+
+
+if __name__ == "__main__":
+    main()

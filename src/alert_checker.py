@@ -119,6 +119,7 @@ def write_alert_state(client: InfluxDBClient, status: str) -> bool:
     try:
         write_api = client.write_api()
         write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
+        write_api.close()
         log.info("alert_state written to InfluxDB: '%s'", status)
         return True
     except (InfluxDBError, ConnectionError, OSError) as e:
@@ -161,6 +162,8 @@ def send_telegram(message: str) -> bool:
 def build_message(status: str, weather: dict) -> str:
     ts = weather.get("time")
     if isinstance(ts, datetime):
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
         ts_str = ts.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     else:
         ts_str = "unknown"
@@ -201,7 +204,7 @@ def main() -> int:
         weather = query_latest_weather(client)
         if weather is None:
             log.warning("Skipping alert logic: no data available")
-            return 0
+            return 1
 
         current_status = detect_status(weather)
         last_status = query_last_alert_state(client)

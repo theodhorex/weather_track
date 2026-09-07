@@ -30,7 +30,7 @@ BASE_URL = "https://api.openweathermap.org/data/2.5/forecast"
 CITY = os.getenv("CITY")
 INTERVAL_SECONDS = int(os.getenv("FETCH_INTERVAL_SECONDS", "1200"))
 
-INFLUX_URL = "https://influxdb.asoytabang.online"
+INFLUX_URL = os.getenv("INFLUX_URL", "https://influxdb.asoytabang.online")
 INFLUX_TOKEN = os.getenv("INFLUX_TOKEN")
 INFLUX_ORG = os.getenv("INFLUX_ORG")
 INFLUX_BUCKET = os.getenv("INFLUX_BUCKET")
