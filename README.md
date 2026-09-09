@@ -14,6 +14,13 @@ The system runs automatically and at no cost via GitHub Actions, requiring no al
 - **Anti-spam** — alerts are dispatched only on status transitions (e.g. `normal` to `rain` and back), preventing duplicate messages.
 - **Web dashboard** — read-only Next.js 14 frontend that visualises the same InfluxDB data with auto-refresh.
 
+## Recent Improvements
+
+- **Fixed workflow false failures**: Resolved issue where Weather Alert Checker workflow incorrectly failed when no weather data was found (normal operating condition). Now returns exit code 0 for "no data" scenarios while preserving genuine error handling.
+- **Enhanced alert messages**: Improved Telegram notification format with more detailed weather information including temperature and humidity data pulled directly from InfluxDB database.
+- **Language update**: Changed alert message format from Indonesian to English for broader accessibility.
+- **Better message structure**: Redesigned alert format with clear sections (Weather Details, Recommendations/Information, Monitoring Note) for improved readability and actionability.
+
 ---
 
 ## Architecture
