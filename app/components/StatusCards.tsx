@@ -135,6 +135,24 @@ export default function StatusCards({ data, error, loading }: Props) {
           {loading || !data ? "—" : fmtTime(data.time)}
         </span>
       </div>
+
+      {/* Data source information */}
+      <div className="flex items-baseline gap-x-md py-xs text-caption-md text-mute">
+        <span className="select-none w-6 shrink-6">·</span>
+        <span className="w-44 shrink-0">source</span>
+        <span className="tabular-nums text-italic">
+          OpenWeatherMap forecast • GitHub Actions
+        </span>
+      </div>
+
+      {/* Rain threshold explanation */}
+      <div className="flex items-baseline gap-x-md py-xs text-caption-md text-mute">
+        <span className="select-none w-6 shrink-6">·</span>
+        <span className="w-44 shrink-0">rain alert when</span>
+        <span className="tabular-nums text-italic text-[10px]">
+          Probability ≥ 60% OR Condition = "Rain"
+        </span>
+      </div>
     </div>
   );
 }
