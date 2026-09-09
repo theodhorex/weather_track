@@ -295,7 +295,23 @@ The repository also contains a web dashboard built with Next.js 14 (App Router, 
 
 ### Dashboard Features
 
-- **Current conditions panel** — list-row style with ASCII bracket markers `[+]`, `[!]`, `[?]`. Displays temperature, humidity, rain probability, condition, and alert status.
+- **Current conditions panel** — list-row style with ASCII bracket markers `[+]`, `[!]`, `[?]`. Displays detailed weather information in the format:
+  ```
+  [+]current conditions
+  temperature
+  30.5°C
+  humidity
+  70%
+  rain probability
+  0%
+  condition
+  Clouds
+  alert status
+  no data
+  last sample
+  2026-09-09 08:42:51 UTC
+  source: openweathermap forecast, polled by influx_weather_collector on github actions. rain threshold = 60% probability or weather_main == "Rain".
+  ```
 - **Time-series chart (Recharts)** — temperature (solid line) and humidity (dashed line) with legend, rendered in the chart-tile pattern (hairline border, no rounded corners, figure caption).
 - **ASCII sparkline tiles** — four summary statistics (mean and max temperature, mean and max humidity) as sparse-line ASCII plots, following the chart-tile design pattern.
 - **Range selector** — 24 hours, 7 days, 30 days, with automatic downsampling via `aggregateWindow`.
