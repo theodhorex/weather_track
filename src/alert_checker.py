@@ -66,7 +66,7 @@ from(bucket: "{INFLUX_BUCKET}")
   |> range(start: -{_LOOKBACK_HOURS}h)
   |> filter(fn: (r) => r._measurement == "{MEASUREMENT_WEATHER}")
   |> filter(fn: (r) => r.city == "{TAG_CITY}")
-  |> filter(fn: (r) => r._field == "rain_probability" or r._field == "weather_main")
+  |> filter(fn: (r) => r._field == "rain_probability" or r._field == "weather_main" or r._field == "temp" or r._field == "humidity")
   |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
   |> sort(columns: ["_time"], desc: true)
   |> limit(n: 1)
@@ -79,6 +79,8 @@ from(bucket: "{INFLUX_BUCKET}")
                     "time": record.get_time(),
                     "rain_probability": record.values.get("rain_probability"),
                     "weather_main": record.values.get("weather_main"),
+                    "temp": record.values.get("temp"),
+                    "humidity": record.values.get("humidity"),
                 }
         log.warning("No weather data found in last %d hour(s)", _LOOKBACK_HOURS)
         return None
@@ -170,23 +172,44 @@ def build_message(status: str, weather: dict) -> str:
 
     rain_pop = float(weather.get("rain_probability") or 0.0)
     weather_main = str(weather.get("weather_main") or "Unknown")
+    temp = weather.get("temp")
+    humidity = weather.get("humidity")
     threshold = _RAIN_PROBABILITY_THRESHOLD
 
     if status == _STATUS_RAIN:
+        temp_str = f"{temp:.1f}°C" if temp is not None else "N/A"
+        humidity_str = f"{humidity}%" if humidity is not None else "N/A"
+
         return (
-            f"🌧️ <b>Rain Alert — {weather_main} detected</b>\n\n"
-            f"📊 Rain probability: <b>{rain_pop:.1f}%</b> (threshold {threshold:.0f}%)\n"
-            f"☁️ Condition: {weather_main}\n"
-            f"🕒 Sample time: {ts_str}\n\n"
-            f"Prepare your umbrella ☂️"
+            f"🌧️ <b>PERINGATAN HUJAN - {weather_main}</b>\n\n"
+            f"📊 <b>Detail Kondisi Cuaca:</b>\n"
+            f"   • Probability Hujan: <b>{rain_pop:.1f}%</b> (ambang {threshold:.0f}%)\n"
+            f"   • Kondisi: {weather_main}\n"
+            f"   • Suhu: {temp_str}\n"
+            f"   • Kelembaban: {humidity_str}\n"
+            f"   • Waktu Pengukuran: {ts_str}\n\n"
+            f"💡 <b>Rekomendasi:</b>\n"
+            f"   Siapkan payung dan jangan lupa menggunakan jas hujan saat beraktivitas luar ruangan.\n"
+            f"   Waspadai potensi banjir ringan di daerah rendah lalu lintas mungkin terhambat.\n\n"
+            f"🌦️ <i>Cuaca akan terus dipantau untuk perubahan selanjutnya.</i>"
         )
-    return (
-        f"☀️ <b>Weather back to normal</b>\n\n"
-        f"📊 Rain probability: <b>{rain_pop:.1f}%</b>\n"
-        f"☁️ Condition: {weather_main}\n"
-        f"🕒 Sample time: {ts_str}\n\n"
-        f"Safe to head out without an umbrella."
-    )
+    else:
+        temp_str = f"{temp:.1f}°C" if temp is not None else "N/A"
+        humidity_str = f"{humidity}%" if humidity is not None else "N/A"
+
+        return (
+            f"☀️ <b>CUBAA NORMAL LAGI</b>\n\n"
+            f"📊 <b>Detail Kondisi Cuaca:</b>\n"
+            f"   • Probability Hujan: <b>{rain_pop:.1f}%</b>\n"
+            f"   • Kondisi: {weather_main}\n"
+            f"   • Suhu: {temp_str}\n"
+            f"   • Kelembaban: {humidity_str}\n"
+            f"   • Waktu Pengukuran: {ts_str}\n\n"
+            f"💡 <b>Informasi:</b>\n"
+            f"   Kondisi cuaca currently baik untuk aktivitas luar ruangan.\n"
+            f"   Tetaplah alert karena cuaca dapat berubah dengan cepat.\n\n"
+            f"🌦️ <i>Sistem akan terus memantau dan memberi peringatan jika diperlukan.</i>"
+        )
 
 
 def main() -> int:
