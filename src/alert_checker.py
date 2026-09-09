@@ -32,7 +32,7 @@ _STATUS_RAIN = "rain"
 _LOOKBACK_HOURS = 1
 _STATE_LOOKBACK_DAYS = 30
 _TELEGRAM_TIMEOUT = 10
-_INFLUX_TIMEOUT = 10_000
+_INFLUX_TIMEOUT = 30_000
 
 MEASUREMENT_WEATHER = "weather_data"
 MEASUREMENT_ALERT_STATE = "alert_state"
@@ -204,7 +204,7 @@ def main() -> int:
         weather = query_latest_weather(client)
         if weather is None:
             log.warning("Skipping alert logic: no data available")
-            return 1
+            return 0
 
         current_status = detect_status(weather)
         last_status = query_last_alert_state(client)
